@@ -173,7 +173,7 @@
     z-index: 2;
   }
 
-  .cell-date.sunday { color: var(--red); }
+  .cell-date.sunday, .cell-dow.sunday { color: var(--red); }
   .cell-date.today {
     font-weight: 700;
   }
@@ -306,6 +306,7 @@ function buildCalendar(year){
     // Day label cell
     const dowCell = document.createElement('div');
     dowCell.className = 'cell-dow';
+    if(dow === 6) dowCell.classList.add('sunday');
     // Only show label at start of each week block (first occurrence)
     if(dow < 7){
       dowCell.textContent = DAYS[dow];
