@@ -89,7 +89,12 @@
   .bag-counter .lbl{ font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--cream-dim); opacity:0.7; }
 
   .layout{ display:grid; grid-template-columns: minmax(0,1fr) 260px; gap:clamp(16px,2.5vw,28px); align-items:start; }
-  @media (max-width:880px){ .layout{ grid-template-columns:1fr; } }
+  @media (max-width:880px){
+    .layout{ grid-template-columns:1fr; display:flex; flex-direction:column; }
+    .layout .board-wrap{ order:1; }
+    .layout .rack-zone-slot{ order:2; }
+    .layout .panel{ order:3; }
+  }
 
   .scoreboard{ display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
   .score-card{
@@ -213,6 +218,7 @@
         <div class="code" id="roomCodeDisplay">——</div>
       </div>
       <div id="turnBanner" class="turn-banner">—</div>
+      <button class="btn-ghost hidden" id="challengeBtn">Challenge last play</button>
       <div style="display:flex; align-items:center; gap:10px;">
         <span><span class="conn-dot live" id="connDot"></span><span id="connLabel" style="font-size:12px; color:var(--cream-dim);">live</span></span>
         <button class="btn-ghost" id="copyLinkBtn">Copy invite link</button>
@@ -234,6 +240,16 @@
     <div class="layout">
       <div class="board-wrap">
         <div class="board" id="board"></div>
+      </div>
+
+      <div class="rack-zone-slot">
+        <div class="rack-zone">
+          <div class="rack-head">
+            <div class="who" id="rackWho"><span class="dot"></span>Your rack</div>
+            <div style="font-size:12px; color:var(--cream-dim); opacity:0.7;">Click a tile, then click a board square. Click a placed tile to take it back.</div>
+          </div>
+          <div class="rack" id="rack"></div>
+        </div>
       </div>
 
       <div class="panel">
@@ -261,15 +277,7 @@
       </div>
     </div>
 
-    <div class="rack-zone">
-      <div class="rack-head">
-        <div class="who" id="rackWho"><span class="dot"></span>Your rack</div>
-        <div style="font-size:12px; color:var(--cream-dim); opacity:0.7;">Click a tile, then click a board square. Click a placed tile to take it back.</div>
-      </div>
-      <div class="rack" id="rack"></div>
-    </div>
-
-    <div class="footer-note">Scoring follows standard letter values &amp; premium squares. Word legality is honor-system — play fair, or don't.</div>
+    <div class="footer-note">Scoring follows standard letter values &amp; premium squares. Words are checked against the Collins Scrabble Words list; any play can be challenged before the next player acts.</div>
   </div>
 
 </div>
@@ -282,6 +290,25 @@
   const SUPABASE_URL = 'https://rrnryszgvctxainqyuyr.supabase.co';
   const SUPABASE_ANON_KEY = 'sb_publishable_GxbDQxSFVdP3GHWP9vqTWA_c7cibAhZ';
   const supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // Collins Scrabble Words list, fetched once at load for challenge validation.
+  const WORDLIST_URL = 'https://raw.githubusercontent.com/jesstess/Scrabble/master/scrabble/word_list.txt';
+  let dictionary = null;       // Set<string> once loaded, null while loading/unavailable
+  let dictionaryFailed = false;
+  (async function loadDictionary(){
+    try{
+      const res = await fetch(WORDLIST_URL);
+      if(!res.ok) throw new Error('bad response');
+      const text = await res.text();
+      dictionary = new Set(text.split('\n').map(w=> w.trim().toUpperCase()).filter(Boolean));
+      render();
+    } catch(e){
+      console.error('Dictionary load failed:', e);
+      dictionaryFailed = true;
+      showToast('Word list unavailable — challenges disabled for this session.');
+      render();
+    }
+  })();
 
   const SIZE = 15, CENTER = 7;
   const LETTER_VALUES = {A:1,B:3,C:3,D:2,E:1,F:4,G:2,H:4,I:1,J:8,K:5,L:1,M:3,N:1,O:1,P:3,Q:10,R:1,S:1,T:1,U:1,V:4,W:4,X:8,Y:4,Z:10,'':0};
@@ -347,6 +374,16 @@
       if(players[n] && players[n].name) return n;
     }
     return fromSeat;
+  }
+  // Advances turn honoring a pending skip-next-turn penalty (from a failed challenge).
+  // Returns { next, skipNextTurn } — skipNextTurn is the value to store back on state.
+  function resolveNextTurn(players, fromSeat, skipNextTurn){
+    let next = nextOccupiedSeat(players, fromSeat);
+    if(skipNextTurn !== null && skipNextTurn !== undefined && next === skipNextTurn){
+      next = nextOccupiedSeat(players, next);
+      return { next, skipNextTurn: null };
+    }
+    return { next, skipNextTurn: (skipNextTurn === undefined ? null : skipNextTurn) };
   }
 
   // ================= SUPABASE I/O =================
@@ -421,6 +458,8 @@
         passStreak: 0,
         log: [{ text: `${name} created the room.`, seat:null }],
         gameOver: false,
+        lastPlay: null,
+        skipNextTurn: null,
       };
       const { error } = await supa.from('scrabble_games').insert({ room_code: code, state: initState, version: 0 });
       if(!error){
@@ -538,6 +577,7 @@
     renderRack();
     renderLog();
     renderTurnBanner();
+    renderChallengeButton();
     bagCountEl.textContent = state.bag.length;
     updateButtonStates();
   }
@@ -645,6 +685,15 @@
     } else {
       turnBannerEl.textContent = `Waiting for ${cur.name}…`;
       turnBannerEl.classList.remove('mine');
+    }
+  }
+
+  function renderChallengeButton(){
+    const btn = $('challengeBtn');
+    const canChallenge = !!state.lastPlay && mySeat !== null && state.lastPlay.seat !== mySeat && dictionary !== null;
+    btn.classList.toggle('hidden', !canChallenge);
+    if(canChallenge){
+      btn.textContent = `Challenge ${state.players[state.lastPlay.seat].name}'s play`;
     }
   }
 
@@ -866,16 +915,24 @@
       myPending.forEach(p=>{ newBoard[p.r][p.c] = { letter:p.letter, isBlank:p.isBlank }; });
       const newPlayers = fresh.players.map(p=> ({...p, rack:p.rack.slice()}));
       newPlayers[mySeat].score += calc.total;
+      const rackAfterRemoval = newPlayers[mySeat].rack.slice();
       myPending.forEach(p=>{
         const idx = newPlayers[mySeat].rack.indexOf(p.originalLetter);
         if(idx>-1) newPlayers[mySeat].rack.splice(idx,1);
       });
+      const rackBeforeDraw = newPlayers[mySeat].rack.slice(); // snapshot to restore on a successful challenge (no replacement draw)
       const newBag = fresh.bag.slice();
       const needed = 7 - newPlayers[mySeat].rack.length;
-      for(let i=0;i<needed && newBag.length>0;i++){ newPlayers[mySeat].rack.push(newBag.pop()); }
+      const tilesDrawn = [];
+      for(let i=0;i<needed && newBag.length>0;i++){ const t = newBag.pop(); tilesDrawn.push(t); newPlayers[mySeat].rack.push(t); }
       const wordsText = calc.words.map(w=>`<b>${w.text}</b> (${w.score})`).join(' + ');
       const newLog = [{ text:`${newPlayers[mySeat].name} played ${wordsText} → <b>+${calc.total}</b>${calc.bingo?' <b>BINGO +50!</b>':''}`, seat:mySeat }, ...fresh.log].slice(0,50);
-      let newState = { ...fresh, board:newBoard, players:newPlayers, bag:newBag, firstMovePlayed:true, passStreak:0, current: nextOccupiedSeat(newPlayers, mySeat), log:newLog };
+      const turnInfo = resolveNextTurn(newPlayers, mySeat, fresh.skipNextTurn);
+      let newState = {
+        ...fresh, board:newBoard, players:newPlayers, bag:newBag, firstMovePlayed:true, passStreak:0,
+        current: turnInfo.next, skipNextTurn: turnInfo.skipNextTurn, log:newLog,
+        lastPlay: { seat: mySeat, words: calc.words.map(w=>w.text.toUpperCase()), total: calc.total, placedTiles: myPending.map(p=>({r:p.r,c:p.c,letter:p.letter,isBlank:p.isBlank})), rackBeforeDraw, tilesDrawn },
+      };
       newState = maybeEndGame(newState);
       return { newState };
     });
@@ -921,7 +978,8 @@
       const needed = lettersToExchange.length;
       for(let i=0;i<needed && newBag.length>0;i++){ rack.push(newBag.pop()); }
       const newLog = [{ text:`${newPlayers[mySeat].name} exchanged ${needed} tile${needed>1?'s':''}.`, seat:mySeat }, ...fresh.log].slice(0,50);
-      const newState = { ...fresh, players:newPlayers, bag:newBag, passStreak:0, current: nextOccupiedSeat(newPlayers, mySeat), log:newLog };
+      const turnInfo = resolveNextTurn(newPlayers, mySeat, fresh.skipNextTurn);
+      const newState = { ...fresh, players:newPlayers, bag:newBag, passStreak:0, current: turnInfo.next, skipNextTurn: turnInfo.skipNextTurn, log:newLog, lastPlay:null };
       return { newState };
     });
     exchangeMode = false; exchangeSelection = [];
@@ -935,11 +993,46 @@
     const res = await withRetry((fresh)=>{
       if(fresh.current !== mySeat) return { error:'Turn already moved on.' };
       const newLog = [{ text:`${fresh.players[mySeat].name} passed.`, seat:mySeat }, ...fresh.log].slice(0,50);
-      let newState = { ...fresh, passStreak: fresh.passStreak+1, current: nextOccupiedSeat(fresh.players, mySeat), log:newLog };
+      const turnInfo = resolveNextTurn(fresh.players, mySeat, fresh.skipNextTurn);
+      let newState = { ...fresh, passStreak: fresh.passStreak+1, current: turnInfo.next, skipNextTurn: turnInfo.skipNextTurn, log:newLog, lastPlay:null };
       newState = maybeEndGame(newState);
       return { newState };
     });
     if(!res.ok){ showToast('Could not pass — please try again.'); }
+    render();
+  });
+
+  $('challengeBtn').addEventListener('click', async ()=>{
+    if(!dictionary){ showToast('Word list unavailable — can\'t challenge right now.'); return; }
+    const challengerSeat = mySeat;
+    $('challengeBtn').disabled = true;
+    const res = await withRetry((fresh)=>{
+      if(!fresh.lastPlay) return { error:'Nothing to challenge — the window has closed.' };
+      const lp = fresh.lastPlay;
+      const allValid = lp.words.every(w=> dictionary.has(w));
+      const newPlayers = fresh.players.map(p=>({...p, rack:p.rack.slice()}));
+      let newLog;
+      let newState;
+      if(allValid){
+        // Challenge fails: challenger loses their next turn.
+        newLog = [{ text:`${newPlayers[challengerSeat].name} challenged ${newPlayers[lp.seat].name}'s play — all words were valid. ${newPlayers[challengerSeat].name} will lose their next turn.`, seat:challengerSeat }, ...fresh.log].slice(0,50);
+        newState = { ...fresh, skipNextTurn: challengerSeat, lastPlay:null, log:newLog };
+      } else {
+        // Challenge succeeds: revert the play entirely, no replacement draw.
+        const newBoard = fresh.board.map(row=>row.slice());
+        lp.placedTiles.forEach(t=>{ newBoard[t.r][t.c] = null; });
+        newPlayers[lp.seat].rack = lp.rackBeforeDraw.slice();
+        newPlayers[lp.seat].score -= lp.total;
+        const newBag = fresh.bag.slice();
+        (lp.tilesDrawn||[]).forEach(t=> newBag.push(t));
+        for(let i=newBag.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [newBag[i],newBag[j]]=[newBag[j],newBag[i]]; }
+        newLog = [{ text:`${newPlayers[challengerSeat].name} challenged ${newPlayers[lp.seat].name}'s play — invalid word found. Play reversed.`, seat:challengerSeat }, ...fresh.log].slice(0,50);
+        newState = { ...fresh, board:newBoard, players:newPlayers, bag:newBag, lastPlay:null, log:newLog };
+      }
+      return { newState };
+    });
+    $('challengeBtn').disabled = false;
+    if(!res.ok){ showToast(res.reason || 'Could not process challenge — please try again.'); }
     render();
   });
 
@@ -955,6 +1048,7 @@
       const newState = {
         players: newPlayers, board: emptyBoard(), bag, current:0, firstMovePlayed:false,
         passStreak:0, gameOver:false, log:[{ text:'Room was reset for a new game.', seat:null }],
+        lastPlay:null, skipNextTurn:null,
       };
       return { newState };
     });
