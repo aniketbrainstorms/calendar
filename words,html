@@ -1,0 +1,986 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Three-Hand Scrabble — Online</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --felt-1: #1f3d2e; --felt-2: #17301f;
+    --wood-1: #6b4a34; --wood-2: #4a3324;
+    --cream: #f4ead9; --cream-dim: #e6d8c0;
+    --ink: #241a12; --ink-soft: #4a3d30;
+    --gold: #c99a4b; --gold-bright: #e0b567;
+    --tw: #b5533f; --dw: #d98c66; --tl: #4c7a8a; --dl: #8fb4a8;
+    --board-blank: #e9ddc7;
+    --p1: #c9743f; --p2: #4f8a6b; --p3: #7d6bb0;
+    --shadow: 0 8px 24px rgba(0,0,0,0.35);
+  }
+  *{ box-sizing:border-box; }
+  html,body{
+    margin:0; min-height:100%;
+    background: radial-gradient(ellipse at top, rgba(255,255,255,0.05), transparent 60%), linear-gradient(160deg, var(--felt-1), var(--felt-2));
+    font-family:'Manrope', sans-serif; color: var(--cream);
+  }
+  ::selection{ background: var(--gold); color: var(--ink); }
+  .stage{ max-width:1180px; margin:0 auto; padding: clamp(16px,3vw,40px) clamp(12px,3vw,28px) 80px; }
+  h1{ font-family:'Fraunces',serif; font-weight:700; font-size:clamp(28px,5vw,44px); margin:0; letter-spacing:-0.01em; }
+  h1 span{ color:var(--gold-bright); font-style:italic; font-weight:600; }
+  .tagline{ font-size:13px; color:var(--cream-dim); opacity:0.65; margin-top:4px; }
+
+  /* ---------- LOBBY ---------- */
+  #lobbyScreen{ max-width:520px; margin: 6vh auto; }
+  .lobby-card{
+    background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+    border:1px solid rgba(255,255,255,0.1);
+    border-radius:18px; padding: 28px 26px; margin-top:26px;
+    box-shadow: var(--shadow);
+  }
+  .lobby-card h2{ font-family:'Fraunces',serif; font-size:22px; margin:0 0 4px; }
+  .lobby-card p{ font-size:13px; color:var(--cream-dim); opacity:0.7; margin:0 0 16px; }
+  label{ font-size:12px; text-transform:uppercase; letter-spacing:0.08em; color:var(--cream-dim); opacity:0.75; display:block; margin-bottom:6px; }
+  input[type=text]{
+    width:100%; padding:11px 14px; border-radius:10px; border:1px solid rgba(255,255,255,0.15);
+    background: rgba(0,0,0,0.2); color:var(--cream); font-family:'Manrope',sans-serif; font-size:15px;
+    margin-bottom:14px; outline:none;
+  }
+  input[type=text]:focus{ border-color: var(--gold-bright); }
+  input[type=text]::placeholder{ color: rgba(244,234,217,0.35); }
+  button{
+    font-family:'Manrope',sans-serif; font-weight:600; font-size:14px; border:none;
+    border-radius:10px; padding:11px 16px; cursor:pointer;
+    transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+  }
+  button:active{ transform:scale(0.97); }
+  button:disabled{ opacity:0.35; cursor:not-allowed; }
+  .btn-primary{ background: linear-gradient(160deg, var(--gold-bright), var(--gold)); color: var(--ink); width:100%; }
+  .btn-primary:not(:disabled):hover{ box-shadow:0 4px 14px rgba(224,181,103,0.4); }
+  .btn-ghost{ background: rgba(255,255,255,0.06); color:var(--cream); border:1px solid rgba(255,255,255,0.12); }
+  .btn-ghost:not(:disabled):hover{ background: rgba(255,255,255,0.1); }
+  .btn-danger{ background: rgba(181,83,63,0.18); color:#f0c3b6; border:1px solid rgba(181,83,63,0.4); }
+  .divider{ display:flex; align-items:center; gap:10px; margin:22px 0; color:var(--cream-dim); opacity:0.4; font-size:12px; text-transform:uppercase; letter-spacing:0.1em; }
+  .divider::before,.divider::after{ content:''; flex:1; height:1px; background: rgba(255,255,255,0.15); }
+  .lobby-error{ color:#f0a08a; font-size:13px; margin: -6px 0 14px; min-height:16px; }
+
+  /* ---------- ROOM BANNER ---------- */
+  .room-banner{
+    display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;
+    background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+    border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:12px 18px; margin-bottom:16px;
+  }
+  .room-banner .code{ font-family:'Fraunces',serif; font-weight:700; font-size:20px; letter-spacing:0.06em; color:var(--gold-bright); }
+  .room-banner .code-lbl{ font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--cream-dim); opacity:0.6; }
+  .turn-banner{
+    font-family:'Fraunces',serif; font-size:15px; padding:7px 16px; border-radius:999px;
+    background: rgba(224,181,103,0.15); border:1px solid rgba(224,181,103,0.3); color: var(--gold-bright);
+  }
+  .turn-banner.mine{ background: rgba(224,181,103,0.9); color: var(--ink); font-weight:700; }
+  .conn-dot{ width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px; }
+  .conn-dot.live{ background:#7fd39a; box-shadow:0 0 6px #7fd39a; }
+  .conn-dot.down{ background:#e08a76; }
+
+  header.top{ display:flex; justify-content:space-between; align-items:flex-end; gap:24px; margin-bottom:clamp(18px,3vw,24px); flex-wrap:wrap; }
+  .bag-counter{ font-family:'Fraunces',serif; text-align:right; }
+  .bag-counter .num{ font-size:30px; font-weight:700; color:var(--gold-bright); line-height:1; }
+  .bag-counter .lbl{ font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:var(--cream-dim); opacity:0.7; }
+
+  .layout{ display:grid; grid-template-columns: minmax(0,1fr) 260px; gap:clamp(16px,2.5vw,28px); align-items:start; }
+  @media (max-width:880px){ .layout{ grid-template-columns:1fr; } }
+
+  .scoreboard{ display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
+  .score-card{
+    flex:1 1 140px; background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+    border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:12px 16px; position:relative; overflow:hidden;
+    transition: transform 0.35s cubic-bezier(.16,1,.3,1), box-shadow 0.35s cubic-bezier(.16,1,.3,1);
+  }
+  .score-card::before{ content:''; position:absolute; left:0; top:0; bottom:0; width:5px; background:var(--accent); }
+  .score-card.p1{ --accent: var(--p1); } .score-card.p2{ --accent: var(--p2); } .score-card.p3{ --accent: var(--p3); }
+  .score-card.active{ transform: translateY(-4px); box-shadow: var(--shadow); border-color: rgba(255,255,255,0.22); }
+  .score-card.empty{ opacity:0.4; }
+  .score-card .name{ font-size:12px; text-transform:uppercase; letter-spacing:0.08em; color:var(--cream-dim); opacity:0.75; display:flex; align-items:center; gap:6px; }
+  .score-card .turn-dot{ width:6px; height:6px; border-radius:50%; background:var(--accent); opacity:0; transition:opacity 0.3s; }
+  .score-card.active .turn-dot{ opacity:1; box-shadow:0 0 8px var(--accent); }
+  .score-card .pts{ font-family:'Fraunces',serif; font-weight:700; font-size:26px; margin-top:2px; }
+
+  .board-wrap{ background: linear-gradient(155deg, var(--wood-1), var(--wood-2)); border-radius:18px; padding:clamp(10px,2vw,18px); box-shadow: var(--shadow), inset 0 0 0 1px rgba(255,255,255,0.06); }
+  .board{ display:grid; grid-template-columns:repeat(15,1fr); grid-template-rows:repeat(15,1fr); gap:2px; aspect-ratio:1/1; background:var(--wood-2); border-radius:8px; overflow:hidden; }
+  .cell{ position:relative; background:var(--board-blank); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:0; }
+  .cell.TW{ background:var(--tw); } .cell.DW{ background:var(--dw); } .cell.TL{ background:var(--tl); } .cell.DL{ background:var(--dl); } .cell.center{ background:var(--dw); }
+  .cell .bonus-label{ font-size:clamp(6px,1vw,9px); font-weight:700; color:rgba(0,0,0,0.45); letter-spacing:0.02em; }
+  .cell.center::after{ content:'★'; font-size:clamp(9px,1.4vw,14px); color:rgba(0,0,0,0.4); }
+  .cell.actionable:hover:not(.filled){ outline:2px solid rgba(224,181,103,0.7); outline-offset:-2px; z-index:2; }
+
+  .tile{
+    position:absolute; inset:6%; border-radius:4px; background: linear-gradient(160deg,#fbf3e3,var(--cream-dim));
+    box-shadow:0 2px 3px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.6);
+    display:flex; align-items:center; justify-content:center; color:var(--ink);
+    font-family:'Fraunces',serif; font-weight:700; font-size:clamp(9px,1.8vw,20px); user-select:none;
+  }
+  .tile.pending{ cursor:pointer; box-shadow:0 2px 6px rgba(224,181,103,0.6), inset 0 0 0 1px rgba(255,255,255,0.7), 0 0 0 2px var(--gold-bright); animation: drop 0.28s cubic-bezier(.16,1,.3,1); }
+  @keyframes drop{ from{ transform:translateY(-10px) scale(0.85); opacity:0; } to{ transform:translateY(0) scale(1); opacity:1; } }
+  .tile .val{ position:absolute; bottom:8%; right:12%; font-size:0.34em; font-weight:700; font-family:'Manrope',sans-serif; opacity:0.6; }
+  .tile.blank-tile{ color:var(--tw); }
+
+  .panel{ display:flex; flex-direction:column; gap:16px; }
+  .panel-block{ background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:14px 16px; }
+  .panel-block h3{ margin:0 0 8px; font-size:11px; text-transform:uppercase; letter-spacing:0.1em; color:var(--cream-dim); opacity:0.7; font-weight:700; }
+  .btn-row{ display:flex; flex-direction:column; gap:8px; }
+  .word-preview{ font-family:'Fraunces',serif; font-size:15px; color:var(--gold-bright); min-height:18px; }
+
+  .log{ max-height:160px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; font-size:12.5px; }
+  .log::-webkit-scrollbar{ width:5px; } .log::-webkit-scrollbar-thumb{ background:rgba(255,255,255,0.15); border-radius:4px; }
+  .log-entry{ padding:6px 9px; background:rgba(0,0,0,0.18); border-radius:8px; border-left:3px solid var(--accent,var(--gold)); color:var(--cream-dim); }
+  .log-entry b{ color:var(--cream); }
+
+  .rack-zone{ margin-top:20px; background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:16px 18px; }
+  .rack-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px; }
+  .rack-head .who{ font-family:'Fraunces',serif; font-size:18px; font-weight:600; }
+  .rack-head .who .dot{ display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:8px; background:var(--accent); box-shadow:0 0 8px var(--accent); }
+  .rack{ display:flex; gap:8px; flex-wrap:wrap; min-height:64px; }
+  .rack-tile{
+    width:52px; height:56px; border-radius:6px; background: linear-gradient(160deg,#fbf3e3,var(--cream-dim));
+    box-shadow:0 3px 6px rgba(0,0,0,0.3), inset 0 0 0 1px rgba(255,255,255,0.6);
+    display:flex; align-items:center; justify-content:center; position:relative; color:var(--ink);
+    font-family:'Fraunces',serif; font-weight:700; font-size:22px; cursor:grab; user-select:none;
+    transition: transform 0.18s cubic-bezier(.16,1,.3,1), box-shadow 0.18s;
+  }
+  .rack-tile:hover{ transform: translateY(-4px); }
+  .rack-tile.selected{ transform: translateY(-8px); box-shadow:0 6px 14px rgba(224,181,103,0.55), inset 0 0 0 1px rgba(255,255,255,0.7), 0 0 0 2px var(--gold-bright); }
+  .rack-tile .val{ position:absolute; bottom:6px; right:8px; font-size:11px; font-weight:700; font-family:'Manrope',sans-serif; opacity:0.6; }
+  .rack-tile.blank{ color:var(--tw); }
+  .rack-tile.locked{ cursor:not-allowed; opacity:0.85; }
+
+  .footer-note{ text-align:center; font-size:12px; color:var(--cream-dim); opacity:0.5; margin-top:30px; }
+
+  .picker-overlay{ position:fixed; inset:0; background:rgba(10,10,10,0.55); backdrop-filter:blur(3px); display:flex; align-items:center; justify-content:center; z-index:50; }
+  .picker-card{ background: linear-gradient(160deg,var(--wood-1),var(--wood-2)); border-radius:16px; padding:20px; box-shadow: var(--shadow); max-width:360px; }
+  .picker-card h4{ margin:0 0 14px; font-family:'Fraunces',serif; color:var(--cream); font-weight:600; }
+  .picker-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:6px; }
+  .picker-grid button{ background:var(--cream-dim); color:var(--ink); font-family:'Fraunces',serif; font-weight:700; padding:8px 0; }
+
+  .toast{
+    position:fixed; bottom:24px; left:50%; transform: translateX(-50%) translateY(10px);
+    background:var(--ink); color:var(--cream); padding:10px 18px; border-radius:10px; font-size:13px;
+    box-shadow: var(--shadow); opacity:0; pointer-events:none; transition: opacity 0.25s, transform 0.25s; z-index:60; max-width:90vw; text-align:center;
+  }
+  .toast.show{ opacity:1; transform: translateX(-50%) translateY(0); }
+
+  .hidden{ display:none !important; }
+  .spinner{ width:16px; height:16px; border-radius:50%; border:2px solid rgba(255,255,255,0.25); border-top-color: var(--gold-bright); display:inline-block; animation: spin 0.7s linear infinite; vertical-align:-3px; margin-right:8px; }
+  @keyframes spin{ to{ transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div class="stage">
+
+  <!-- ===================== LOBBY ===================== -->
+  <div id="lobbyScreen">
+    <h1>Three-Hand <span>Scrabble</span></h1>
+    <div class="tagline">Play with friends on their own devices — one shared board, live.</div>
+
+    <div class="lobby-card">
+      <h2>Start a new game</h2>
+      <p>You'll get a room code to send to two friends.</p>
+      <label for="createName">Your name</label>
+      <input type="text" id="createName" placeholder="e.g. Aniket" maxlength="20">
+      <button class="btn-primary" id="createBtn">Create room</button>
+    </div>
+
+    <div class="divider">or join one</div>
+
+    <div class="lobby-card">
+      <h2>Join a game</h2>
+      <p>Enter the room code someone sent you.</p>
+      <label for="joinCode">Room code</label>
+      <input type="text" id="joinCode" placeholder="e.g. KIWI42" maxlength="8" style="text-transform:uppercase;">
+      <label for="joinName">Your name</label>
+      <input type="text" id="joinName" placeholder="e.g. Priya" maxlength="20">
+      <div class="lobby-error" id="lobbyError"></div>
+      <button class="btn-primary" id="joinBtn">Join room</button>
+    </div>
+  </div>
+
+  <!-- ===================== GAME ===================== -->
+  <div id="gameScreen" class="hidden">
+    <div class="room-banner">
+      <div>
+        <div class="code-lbl">Room code — share this link</div>
+        <div class="code" id="roomCodeDisplay">——</div>
+      </div>
+      <div id="turnBanner" class="turn-banner">—</div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span><span class="conn-dot live" id="connDot"></span><span id="connLabel" style="font-size:12px; color:var(--cream-dim);">live</span></span>
+        <button class="btn-ghost" id="copyLinkBtn">Copy invite link</button>
+      </div>
+    </div>
+
+    <header class="top">
+      <div>
+        <h1 style="font-size:clamp(20px,3vw,28px);">Three-Hand <span>Scrabble</span></h1>
+      </div>
+      <div class="bag-counter">
+        <div class="num" id="bagCount">100</div>
+        <div class="lbl">tiles left in bag</div>
+      </div>
+    </header>
+
+    <div class="scoreboard" id="scoreboard"></div>
+
+    <div class="layout">
+      <div class="board-wrap">
+        <div class="board" id="board"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-block">
+          <h3>This turn</h3>
+          <div class="word-preview" id="wordPreview">Place tiles on the board</div>
+          <div class="btn-row" style="margin-top:12px;">
+            <button class="btn-primary" id="playBtn">Play word</button>
+            <button class="btn-ghost" id="recallBtn">Recall tiles</button>
+            <button class="btn-ghost" id="shuffleBtn">Shuffle rack</button>
+            <button class="btn-ghost" id="exchangeBtn">Exchange selected</button>
+            <button class="btn-danger" id="passBtn">Pass turn</button>
+          </div>
+        </div>
+
+        <div class="panel-block">
+          <h3>Game log</h3>
+          <div class="log" id="log"></div>
+        </div>
+
+        <div class="panel-block">
+          <h3>Room</h3>
+          <button class="btn-ghost" id="resetBtn" style="width:100%;">Reset this room</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="rack-zone">
+      <div class="rack-head">
+        <div class="who" id="rackWho"><span class="dot"></span>Your rack</div>
+        <div style="font-size:12px; color:var(--cream-dim); opacity:0.7;">Click a tile, then click a board square. Click a placed tile to take it back.</div>
+      </div>
+      <div class="rack" id="rack"></div>
+    </div>
+
+    <div class="footer-note">Scoring follows standard letter values &amp; premium squares. Word legality is honor-system — play fair, or don't.</div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  // ================= CONFIG =================
+  const SUPABASE_URL = 'https://rrnryszgvctxainqyuyr.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJybnJ5c3pndmN0eGFpbnF5dXlyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4ODg3NTcsImV4cCI6MjA5MDQ2NDc1N30.GkGvfR_ZlGIupbwOOl1BL5gb58M-E2LD5sD7pVl4tso';
+  const supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const SIZE = 15, CENTER = 7;
+  const LETTER_VALUES = {A:1,B:3,C:3,D:2,E:1,F:4,G:2,H:4,I:1,J:8,K:5,L:1,M:3,N:1,O:1,P:3,Q:10,R:1,S:1,T:1,U:1,V:4,W:4,X:8,Y:4,Z:10,'':0};
+  const DISTRIBUTION = {A:9,B:2,C:2,D:4,E:12,F:2,G:3,H:2,I:9,J:1,K:1,L:4,M:2,N:6,O:8,P:2,Q:1,R:6,S:4,T:6,U:4,V:2,W:2,X:1,Y:2,Z:1,'':2};
+  const TW = [[0,0],[0,7],[0,14],[7,0],[7,14],[14,0],[14,7],[14,14]];
+  const DW = [[1,1],[2,2],[3,3],[4,4],[1,13],[2,12],[3,11],[4,10],[13,1],[12,2],[11,3],[10,4],[13,13],[12,12],[11,11],[10,10]];
+  const TL = [[1,5],[1,9],[5,1],[5,5],[5,9],[5,13],[9,1],[9,5],[9,9],[9,13],[13,5],[13,9]];
+  const DL = [[0,3],[0,11],[2,6],[2,8],[3,0],[3,7],[3,14],[6,2],[6,6],[6,8],[6,12],[7,3],[7,11],[8,2],[8,6],[8,8],[8,12],[11,0],[11,7],[11,14],[12,6],[12,8],[14,3],[14,11]];
+  function key(r,c){ return r+'_'+c; }
+  const bonusMap = {};
+  TW.forEach(([r,c])=> bonusMap[key(r,c)]='TW');
+  DW.forEach(([r,c])=> bonusMap[key(r,c)]='DW');
+  TL.forEach(([r,c])=> bonusMap[key(r,c)]='TL');
+  DL.forEach(([r,c])=> bonusMap[key(r,c)]='DL');
+  bonusMap[key(CENTER,CENTER)] = 'DW';
+  const bonusLabel = {TW:'TRIPLE\nWORD', DW:'DOUBLE\nWORD', TL:'TRIPLE\nLETTER', DL:'DOUBLE\nLETTER'};
+
+  // ================= LOCAL SESSION STATE =================
+  let roomCode = null;
+  let mySeat = null;       // 0,1,2 or null (spectator)
+  let myName = null;
+  let state = null;        // shared game state (mirrors DB `state` column)
+  let version = 0;
+  let channel = null;
+  let pending = [];         // [{r,c,letter,isBlank,originalLetter}]
+  let myLocalRack = [];     // clone of my rack minus pending tiles, only refreshed when pending is empty
+  let selectedIdx = null;
+  let exchangeMode = false;
+  let exchangeSelection = [];
+
+  // ================= DOM =================
+  const $ = id => document.getElementById(id);
+  const lobbyScreen = $('lobbyScreen'), gameScreen = $('gameScreen');
+  const boardEl = $('board'), rackEl = $('rack'), rackWhoEl = $('rackWho');
+  const scoreboardEl = $('scoreboard'), bagCountEl = $('bagCount'), wordPreviewEl = $('wordPreview'), logEl = $('log');
+  const turnBannerEl = $('turnBanner'), roomCodeDisplayEl = $('roomCodeDisplay');
+
+  // ================= HELPERS =================
+  function buildFreshBag(){
+    let arr = [];
+    Object.keys(DISTRIBUTION).forEach(l=>{ for(let i=0;i<DISTRIBUTION[l];i++) arr.push(l); });
+    for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; }
+    return arr;
+  }
+  function emptyBoard(){ return Array.from({length:SIZE},()=>Array(SIZE).fill(null)); }
+  function genRoomCode(){
+    const words = ['KIWI','MANGO','ATLAS','ZEBRA','TOKEN','PIXEL','ORBIT','CORAL','FABLE','GLADE','NOVEL','RIVER','SABER','TEMPO','UMBER','VIVID'];
+    const w = words[Math.floor(Math.random()*words.length)];
+    const n = Math.floor(Math.random()*90)+10;
+    return w+n;
+  }
+  function showToast(msg){
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(showToast._timer);
+    showToast._timer = setTimeout(()=> t.classList.remove('show'), 2800);
+  }
+  function nextOccupiedSeat(players, fromSeat){
+    let n = fromSeat;
+    for(let i=0;i<3;i++){
+      n = (n+1)%3;
+      if(players[n] && players[n].name) return n;
+    }
+    return fromSeat;
+  }
+
+  // ================= SUPABASE I/O =================
+  async function fetchRoomFresh(code){
+    const { data, error } = await supa.from('scrabble_games').select('state,version').eq('room_code', code).maybeSingle();
+    if(error || !data) return null;
+    return data;
+  }
+
+  // Generic retry wrapper: mutatorFn receives the freshest known state and
+  // returns either {newState, extra} or {error}. Retries against the latest
+  // row on version conflicts so concurrent joins/plays never clobber each other.
+  async function withRetry(mutatorFn, maxAttempts=6){
+    for(let attempt=0; attempt<maxAttempts; attempt++){
+      const fresh = await fetchRoomFresh(roomCode);
+      if(!fresh) return { ok:false, reason:'room-missing' };
+      const result = mutatorFn(fresh.state);
+      if(result.error) return { ok:false, reason: result.error };
+      const { data, error } = await supa.from('scrabble_games')
+        .update({ state: result.newState, version: fresh.version + 1 })
+        .eq('room_code', roomCode)
+        .eq('version', fresh.version)
+        .select();
+      if(!error && data && data.length > 0){
+        state = result.newState;
+        version = fresh.version + 1;
+        return { ok:true, extra: result.extra };
+      }
+      await new Promise(r=> setTimeout(r, 150 + Math.random()*200));
+    }
+    return { ok:false, reason:'conflict' };
+  }
+
+  function subscribeRealtime(code){
+    if(channel) supa.removeChannel(channel);
+    channel = supa.channel('room-'+code)
+      .on('postgres_changes', { event:'UPDATE', schema:'public', table:'scrabble_games', filter:'room_code=eq.'+code }, (payload)=>{
+        version = payload.new.version;
+        state = payload.new.state;
+        render();
+      })
+      .subscribe((status)=>{
+        const dot = $('connDot'), lbl = $('connLabel');
+        if(status === 'SUBSCRIBED'){ dot.className='conn-dot live'; lbl.textContent='live'; }
+        else if(status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED'){ dot.className='conn-dot down'; lbl.textContent='reconnecting…'; }
+      });
+  }
+
+  // ================= LOBBY ACTIONS =================
+  async function createRoom(){
+    const name = $('createName').value.trim();
+    if(!name){ showToast('Enter your name first.'); return; }
+    $('createBtn').disabled = true;
+    $('createBtn').innerHTML = '<span class="spinner"></span>Creating…';
+    let attempts = 0;
+    while(attempts < 5){
+      attempts++;
+      const code = genRoomCode();
+      const bag = buildFreshBag();
+      const rack0 = bag.splice(bag.length-7, 7);
+      const initState = {
+        players: [
+          { name, score:0, rack: rack0 },
+          { name:null, score:0, rack:[] },
+          { name:null, score:0, rack:[] },
+        ],
+        board: emptyBoard(),
+        bag,
+        current: 0,
+        firstMovePlayed: false,
+        passStreak: 0,
+        log: [{ text: `${name} created the room.`, seat:null }],
+        gameOver: false,
+      };
+      const { error } = await supa.from('scrabble_games').insert({ room_code: code, state: initState, version: 0 });
+      if(!error){
+        roomCode = code; mySeat = 0; myName = name; state = initState; version = 0;
+        localStorage.setItem('scrabble_session_'+code, JSON.stringify({ seat:0, name }));
+        enterGame();
+        return;
+      }
+    }
+    $('createBtn').disabled = false; $('createBtn').textContent = 'Create room';
+    showToast('Could not create a room — please try again.');
+  }
+
+  async function joinRoom(codeInput, nameInput, silent){
+    const code = (codeInput || '').trim().toUpperCase();
+    const name = (nameInput || '').trim();
+    if(!code){ if(!silent) $('lobbyError').textContent = 'Enter a room code.'; return; }
+    if(!name){ if(!silent) $('lobbyError').textContent = 'Enter your name.'; return; }
+    if(!silent){ $('joinBtn').disabled = true; $('joinBtn').innerHTML = '<span class="spinner"></span>Joining…'; }
+
+    const res = await withRetryForRoom(code, (freshState)=>{
+      const openIdx = freshState.players.findIndex(p=> !p.name);
+      if(openIdx === -1) return { error:'full' };
+      const newBag = freshState.bag.slice();
+      const rack = newBag.splice(Math.max(0,newBag.length-7), 7);
+      const newPlayers = freshState.players.map(p=> ({...p, rack: p.rack.slice()}));
+      newPlayers[openIdx] = { name, score:0, rack };
+      const newLog = [{ text: `${name} joined as Player ${openIdx+1}.`, seat:null }, ...freshState.log].slice(0,50);
+      return { newState: {...freshState, players:newPlayers, bag:newBag, log:newLog }, extra:{ seat: openIdx } };
+    });
+
+    if(!res.ok){
+      if(res.reason === 'room-missing'){ if(!silent) $('lobbyError').textContent = 'No room with that code.'; }
+      else if(res.reason === 'full'){
+        // spectator mode: still load the room read-only
+        const fresh = await fetchRoomFresh(code);
+        if(fresh){
+          roomCode = code; mySeat = null; myName = name; state = fresh.state; version = fresh.version;
+          enterGame();
+          showToast('This room already has 3 players — you\'re spectating.');
+        } else if(!silent){ $('lobbyError').textContent = 'No room with that code.'; }
+      } else if(!silent){ $('lobbyError').textContent = 'Could not join — try again.'; }
+      if(!silent){ $('joinBtn').disabled = false; $('joinBtn').textContent = 'Join room'; }
+      return;
+    }
+    roomCode = code; mySeat = res.extra.seat; myName = name;
+    localStorage.setItem('scrabble_session_'+code, JSON.stringify({ seat: mySeat, name }));
+    enterGame();
+  }
+
+  // withRetry variant usable before `roomCode` global is set (during join)
+  async function withRetryForRoom(code, mutatorFn, maxAttempts=6){
+    const savedRoomCode = roomCode;
+    roomCode = code;
+    const result = await withRetry(mutatorFn, maxAttempts);
+    if(!result.ok) roomCode = savedRoomCode;
+    return result;
+  }
+
+  async function rejoinFromSession(code, session){
+    const fresh = await fetchRoomFresh(code);
+    if(!fresh){ localStorage.removeItem('scrabble_session_'+code); return false; }
+    const seatData = fresh.state.players[session.seat];
+    if(!seatData || seatData.name !== session.name){ localStorage.removeItem('scrabble_session_'+code); return false; }
+    roomCode = code; mySeat = session.seat; myName = session.name; state = fresh.state; version = fresh.version;
+    enterGame();
+    return true;
+  }
+
+  function enterGame(){
+    lobbyScreen.classList.add('hidden');
+    gameScreen.classList.remove('hidden');
+    roomCodeDisplayEl.textContent = roomCode;
+    const url = new URL(window.location.href);
+    url.searchParams.set('room', roomCode);
+    window.history.replaceState({}, '', url);
+    subscribeRealtime(roomCode);
+    render();
+  }
+
+  // ================= RENDERING =================
+  function buildBoardDOM(){
+    boardEl.innerHTML = '';
+    for(let r=0;r<SIZE;r++){
+      for(let c=0;c<SIZE;c++){
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.dataset.r = r; cell.dataset.c = c;
+        const b = bonusMap[key(r,c)];
+        if(r===CENTER && c===CENTER){ cell.classList.add('center'); }
+        else if(b){
+          cell.classList.add(b);
+          const lbl = document.createElement('div');
+          lbl.className='bonus-label';
+          lbl.innerHTML = bonusLabel[b].replace('\n','<br>');
+          cell.appendChild(lbl);
+        }
+        cell.addEventListener('click', ()=> onCellClick(r,c));
+        boardEl.appendChild(cell);
+      }
+    }
+  }
+
+  function render(){
+    if(!state) return;
+    renderBoard();
+    renderScoreboard();
+    renderRack();
+    renderLog();
+    renderTurnBanner();
+    bagCountEl.textContent = state.bag.length;
+    updateButtonStates();
+  }
+
+  function renderBoard(){
+    for(let r=0;r<SIZE;r++){
+      for(let c=0;c<SIZE;c++){
+        const cell = boardEl.children[r*SIZE+c];
+        const existing = cell.querySelector('.tile');
+        if(existing) existing.remove();
+        cell.classList.remove('filled','actionable');
+        const perm = state.board[r][c];
+        const pend = pending.find(p=> p.r===r && p.c===c);
+        const isMyTurn = mySeat !== null && state.current === mySeat;
+        if(isMyTurn && !perm) cell.classList.add('actionable');
+        if(perm){
+          cell.classList.add('filled');
+          const t = document.createElement('div');
+          t.className = 'tile' + (perm.isBlank ? ' blank-tile':'');
+          t.innerHTML = perm.letter + (perm.isBlank?'':`<span class="val">${LETTER_VALUES[perm.letter]}</span>`);
+          cell.appendChild(t);
+        } else if(pend){
+          cell.classList.add('filled');
+          const t = document.createElement('div');
+          t.className = 'tile pending' + (pend.isBlank ? ' blank-tile':'');
+          t.innerHTML = pend.letter + (pend.isBlank?'':`<span class="val">${LETTER_VALUES[pend.letter]}</span>`);
+          t.addEventListener('click', (e)=>{ e.stopPropagation(); recallOne(r,c); });
+          cell.appendChild(t);
+        }
+      }
+    }
+    renderWordPreview();
+  }
+
+  function renderScoreboard(){
+    scoreboardEl.innerHTML = '';
+    state.players.forEach((p,i)=>{
+      const card = document.createElement('div');
+      card.className = 'score-card p'+(i+1) + (state.current===i && p.name ? ' active':'') + (!p.name ? ' empty':'');
+      const label = p.name ? p.name : 'Waiting for player…';
+      const you = (i===mySeat) ? ' (you)' : '';
+      card.innerHTML = `<div class="name"><span class="turn-dot"></span>${label}${you}</div><div class="pts">${p.name ? p.score : '—'}</div>`;
+      scoreboardEl.appendChild(card);
+    });
+  }
+
+  function renderRack(){
+    rackEl.innerHTML = '';
+    if(mySeat === null){
+      rackWhoEl.innerHTML = 'You are spectating';
+      return;
+    }
+    const accent = ['var(--p1)','var(--p2)','var(--p3)'][mySeat];
+    const myName2 = state.players[mySeat].name || myName;
+    rackWhoEl.innerHTML = `<span class="dot" style="background:${accent}; box-shadow:0 0 8px ${accent};"></span>${myName2}'s rack`;
+
+    if(pending.length === 0){
+      myLocalRack = (state.players[mySeat].rack || []).slice();
+    }
+    const isMyTurn = state.current === mySeat;
+    myLocalRack.forEach((letter, idx)=>{
+      const t = document.createElement('div');
+      t.className = 'rack-tile' + (letter==='' ? ' blank':'') + (selectedIdx===idx?' selected':'') + (!isMyTurn && !exchangeMode ? ' locked':'');
+      t.innerHTML = (letter||'') + (letter!=='' ? `<span class="val">${LETTER_VALUES[letter]}</span>` : '');
+      if(letter===''){
+        const b = document.createElement('div');
+        b.style.cssText='position:absolute; font-size:9px; opacity:0.55; top:6px;';
+        b.textContent = 'BLANK';
+        t.appendChild(b);
+      }
+      t.addEventListener('click', ()=> onRackTileClick(idx));
+      rackEl.appendChild(t);
+    });
+    if(exchangeMode){
+      exchangeSelection.forEach(i=>{ const el = rackEl.children[i]; if(el) el.classList.add('selected'); });
+    }
+  }
+
+  function renderLog(){
+    logEl.innerHTML = '';
+    (state.log || []).forEach(entry=>{
+      const div = document.createElement('div');
+      div.className = 'log-entry';
+      if(entry.seat !== null && entry.seat !== undefined) div.style.setProperty('--accent', ['var(--p1)','var(--p2)','var(--p3)'][entry.seat]);
+      div.innerHTML = entry.text;
+      logEl.appendChild(div);
+    });
+  }
+
+  function renderTurnBanner(){
+    if(state.gameOver){
+      turnBannerEl.textContent = 'Game over';
+      turnBannerEl.classList.remove('mine');
+      return;
+    }
+    const cur = state.players[state.current];
+    if(!cur || !cur.name){
+      turnBannerEl.textContent = 'Waiting for players to join…';
+      turnBannerEl.classList.remove('mine');
+      return;
+    }
+    if(mySeat === state.current){
+      turnBannerEl.textContent = 'Your turn!';
+      turnBannerEl.classList.add('mine');
+    } else {
+      turnBannerEl.textContent = `Waiting for ${cur.name}…`;
+      turnBannerEl.classList.remove('mine');
+    }
+  }
+
+  function renderWordPreview(){
+    if(pending.length===0){ wordPreviewEl.textContent = 'Place tiles on the board'; return; }
+    const result = computeWordsAgainst(state.board, state.firstMovePlayed, pending);
+    if(!result.valid){ wordPreviewEl.innerHTML = `<span style="color:#e08a76;">${result.reason}</span>`; return; }
+    wordPreviewEl.textContent = result.words.map(w=>w.text).join('  +  ') + `  →  ${result.total} pts`;
+  }
+
+  function updateButtonStates(){
+    const isMyTurn = mySeat !== null && state.current === mySeat && !state.gameOver;
+    $('playBtn').disabled = !isMyTurn || pending.length===0;
+    $('recallBtn').disabled = pending.length===0;
+    $('passBtn').disabled = !isMyTurn;
+    $('exchangeBtn').disabled = !isMyTurn || state.bag.length===0;
+    $('shuffleBtn').disabled = mySeat===null;
+  }
+
+  // ================= INTERACTION =================
+  function onRackTileClick(idx){
+    if(mySeat === null) return;
+    if(exchangeMode){
+      const pos = exchangeSelection.indexOf(idx);
+      if(pos>-1) exchangeSelection.splice(pos,1); else exchangeSelection.push(idx);
+      $('exchangeBtn').textContent = `Confirm exchange (${exchangeSelection.length} selected)`;
+      renderRack();
+      return;
+    }
+    if(state.current !== mySeat){ showToast('Wait for your turn.'); return; }
+    selectedIdx = (selectedIdx === idx) ? null : idx;
+    renderRack();
+  }
+
+  function onCellClick(r,c){
+    if(mySeat === null || state.current !== mySeat) return;
+    const pend = pending.find(p=> p.r===r && p.c===c);
+    if(pend){ recallOne(r,c); return; }
+    if(state.board[r][c]) return;
+    if(selectedIdx === null){ showToast('Select a tile from your rack first.'); return; }
+    const letter = myLocalRack[selectedIdx];
+    if(letter === ''){
+      openBlankPicker((chosen)=> placePending(r,c,chosen,true,selectedIdx));
+    } else {
+      placePending(r,c,letter,false,selectedIdx);
+    }
+  }
+
+  function placePending(r,c,letter,isBlank,rackIdx){
+    const originalLetter = myLocalRack[rackIdx];
+    pending.push({ r, c, letter, isBlank, originalLetter });
+    myLocalRack.splice(rackIdx,1);
+    selectedIdx = null;
+    render();
+  }
+
+  function recallOne(r,c){
+    const idx = pending.findIndex(p=> p.r===r && p.c===c);
+    if(idx===-1) return;
+    myLocalRack.push(pending[idx].originalLetter);
+    pending.splice(idx,1);
+    render();
+  }
+  function recallAll(){
+    pending.forEach(p=> myLocalRack.push(p.originalLetter));
+    pending = [];
+    render();
+  }
+
+  function openBlankPicker(cb){
+    const overlay = document.createElement('div');
+    overlay.className = 'picker-overlay';
+    const card = document.createElement('div');
+    card.className = 'picker-card';
+    card.innerHTML = '<h4>Choose a letter for the blank tile</h4>';
+    const grid = document.createElement('div'); grid.className='picker-grid';
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').forEach(ch=>{
+      const b = document.createElement('button');
+      b.textContent = ch;
+      b.addEventListener('click', ()=>{ document.body.removeChild(overlay); cb(ch); });
+      grid.appendChild(b);
+    });
+    card.appendChild(grid);
+    overlay.appendChild(card);
+    overlay.addEventListener('click', e=>{ if(e.target===overlay) document.body.removeChild(overlay); });
+    document.body.appendChild(overlay);
+  }
+
+  // ================= WORD COMPUTATION (parametrized) =================
+  function computeWordsAgainst(board, firstMovePlayed, pendingList){
+    if(pendingList.length===0) return { valid:false, reason:'No tiles placed.' };
+    function getCell(r,c){
+      if(r<0||r>=SIZE||c<0||c>=SIZE) return null;
+      const pend = pendingList.find(p=> p.r===r && p.c===c);
+      if(pend) return { letter: pend.letter, isBlank: pend.isBlank, isNew:true, r, c };
+      if(board[r][c]) return { ...board[r][c], isNew:false, r, c };
+      return null;
+    }
+    const rows = new Set(pendingList.map(p=>p.r));
+    const cols = new Set(pendingList.map(p=>p.c));
+    let direction;
+    if(rows.size===1 && cols.size===1){ direction = 'single'; }
+    else if(rows.size===1){ direction='horizontal'; }
+    else if(cols.size===1){ direction='vertical'; }
+    else return { valid:false, reason:'Tiles must be in one row or column.' };
+
+    if(direction==='single'){
+      const p = pendingList[0];
+      const hasH = getCell(p.r,p.c-1) || getCell(p.r,p.c+1);
+      const hasV = getCell(p.r-1,p.c) || getCell(p.r+1,p.c);
+      if(hasH && !hasV) direction='horizontal';
+      else if(hasV && !hasH) direction='vertical';
+      else direction='horizontal';
+    }
+
+    if(direction==='horizontal'){
+      const r=[...rows][0];
+      const cs = pendingList.map(p=>p.c).sort((a,b)=>a-b);
+      for(let c=cs[0]; c<=cs[cs.length-1]; c++){ if(!getCell(r,c)) return { valid:false, reason:'Gap in the word — tiles must be contiguous.' }; }
+    } else {
+      const c=[...cols][0];
+      const rs = pendingList.map(p=>p.r).sort((a,b)=>a-b);
+      for(let r=rs[0]; r<=rs[rs.length-1]; r++){ if(!getCell(r,c)) return { valid:false, reason:'Gap in the word — tiles must be contiguous.' }; }
+    }
+
+    if(!firstMovePlayed){
+      const coversCenter = pendingList.some(p=> p.r===CENTER && p.c===CENTER);
+      if(!coversCenter) return { valid:false, reason:'First word must cover the center star.' };
+    } else {
+      const touches = pendingList.some(p=> board[p.r]?.[p.c-1] || board[p.r]?.[p.c+1] || (board[p.r-1] && board[p.r-1][p.c]) || (board[p.r+1] && board[p.r+1][p.c]));
+      if(!touches) return { valid:false, reason:'Word must connect to an existing tile.' };
+    }
+
+    function extractWord(startR,startC,dr,dc){
+      let r=startR,c=startC;
+      while(getCell(r-dr,c-dc)){ r-=dr; c-=dc; }
+      let cells=[];
+      while(getCell(r,c)){ cells.push(getCell(r,c)); r+=dr; c+=dc; }
+      return cells;
+    }
+
+    const words = [];
+    let mainCells;
+    if(direction==='horizontal') mainCells = extractWord([...rows][0], pendingList[0].c, 0, 1);
+    else mainCells = extractWord(pendingList[0].r, [...cols][0], 1, 0);
+    if(mainCells.length>1 || pendingList.length===1) words.push(mainCells);
+
+    pendingList.forEach(p=>{
+      const crossDr = direction==='horizontal' ? 1 : 0;
+      const crossDc = direction==='horizontal' ? 0 : 1;
+      const crossCells = extractWord(p.r,p.c,crossDr,crossDc);
+      if(crossCells.length>1) words.push(crossCells);
+    });
+
+    if(words.length===0) return { valid:false, reason:'Not a valid word placement.' };
+
+    let total=0;
+    const wordSummaries=[];
+    words.forEach(cells=>{
+      let wordScore=0, wordMult=1, text='';
+      cells.forEach(cell=>{
+        text += cell.letter;
+        const val = cell.isBlank ? 0 : LETTER_VALUES[cell.letter];
+        let letterScore = val;
+        if(cell.isNew){
+          const b = bonusMap[key(cell.r,cell.c)];
+          const isCenterFirst = (cell.r===CENTER && cell.c===CENTER && !firstMovePlayed);
+          if(b==='DL') letterScore*=2;
+          if(b==='TL') letterScore*=3;
+          if(b==='DW' && !isCenterFirst) wordMult*=2;
+          if(b==='TW') wordMult*=3;
+          if(isCenterFirst) wordMult*=2;
+        }
+        wordScore += letterScore;
+      });
+      wordScore *= wordMult;
+      total += wordScore;
+      wordSummaries.push({ text, score: wordScore });
+    });
+    let bingo=false;
+    if(pendingList.length===7){ total+=50; bingo=true; }
+    return { valid:true, words:wordSummaries, total, bingo };
+  }
+
+  function maybeEndGame(st){
+    const joined = st.players.filter(p=>p.name);
+    const emptyRackPlayer = joined.find(p=> p.rack.length===0);
+    if(st.bag.length===0 && emptyRackPlayer){
+      let bonus=0;
+      st.players.forEach(p=>{
+        if(!p.name) return;
+        const rv = p.rack.reduce((s,l)=> s+(l===''?0:LETTER_VALUES[l]), 0);
+        p.score -= rv; bonus += rv;
+      });
+      emptyRackPlayer.score += bonus;
+      st.gameOver = true;
+      const winner = [...joined].sort((a,b)=>b.score-a.score)[0];
+      st.log = [{ text:`<b>Game over.</b> ${emptyRackPlayer.name} played their final tile — bag is empty! <b>${winner.name}</b> wins with ${winner.score} points!`, seat:null }, ...st.log].slice(0,50);
+      return st;
+    }
+    if(joined.length>0 && st.passStreak >= joined.length*2){
+      st.gameOver = true;
+      const winner = [...joined].sort((a,b)=>b.score-a.score)[0];
+      st.log = [{ text:`<b>Game over.</b> Everyone passed twice in a row. <b>${winner.name}</b> wins with ${winner.score} points!`, seat:null }, ...st.log].slice(0,50);
+    }
+    return st;
+  }
+
+  // ================= TURN ACTIONS =================
+  $('playBtn').addEventListener('click', async ()=>{
+    if(pending.length===0) return;
+    const myPending = pending;
+    $('playBtn').disabled = true;
+    const res = await withRetry((fresh)=>{
+      if(fresh.current !== mySeat) return { error:'Turn already moved on — try again.' };
+      const calc = computeWordsAgainst(fresh.board, fresh.firstMovePlayed, myPending);
+      if(!calc.valid) return { error: calc.reason };
+      const newBoard = fresh.board.map(row=>row.slice());
+      myPending.forEach(p=>{ newBoard[p.r][p.c] = { letter:p.letter, isBlank:p.isBlank }; });
+      const newPlayers = fresh.players.map(p=> ({...p, rack:p.rack.slice()}));
+      newPlayers[mySeat].score += calc.total;
+      myPending.forEach(p=>{
+        const idx = newPlayers[mySeat].rack.indexOf(p.originalLetter);
+        if(idx>-1) newPlayers[mySeat].rack.splice(idx,1);
+      });
+      const newBag = fresh.bag.slice();
+      const needed = 7 - newPlayers[mySeat].rack.length;
+      for(let i=0;i<needed && newBag.length>0;i++){ newPlayers[mySeat].rack.push(newBag.pop()); }
+      const wordsText = calc.words.map(w=>`<b>${w.text}</b> (${w.score})`).join(' + ');
+      const newLog = [{ text:`${newPlayers[mySeat].name} played ${wordsText} → <b>+${calc.total}</b>${calc.bingo?' <b>BINGO +50!</b>':''}`, seat:mySeat }, ...fresh.log].slice(0,50);
+      let newState = { ...fresh, board:newBoard, players:newPlayers, bag:newBag, firstMovePlayed:true, passStreak:0, current: nextOccupiedSeat(newPlayers, mySeat), log:newLog };
+      newState = maybeEndGame(newState);
+      return { newState };
+    });
+    if(!res.ok){
+      showToast(res.reason === 'conflict' ? 'Board changed — please try again.' : (res.reason || 'Could not play — try again.'));
+      render();
+      return;
+    }
+    pending = [];
+    render();
+  });
+
+  $('recallBtn').addEventListener('click', recallAll);
+
+  $('shuffleBtn').addEventListener('click', ()=>{
+    for(let i=myLocalRack.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [myLocalRack[i],myLocalRack[j]]=[myLocalRack[j],myLocalRack[i]]; }
+    renderRack();
+  });
+
+  $('exchangeBtn').addEventListener('click', async ()=>{
+    if(pending.length>0){ showToast('Recall your placed tiles before exchanging.'); return; }
+    if(state.bag.length===0){ showToast('The bag is empty — no tiles to exchange for.'); return; }
+    if(!exchangeMode){
+      exchangeMode = true; exchangeSelection = [];
+      $('exchangeBtn').textContent = 'Confirm exchange (0 selected)';
+      showToast('Click rack tiles to select them for exchange, then confirm.');
+      renderRack();
+      return;
+    }
+    if(exchangeSelection.length===0){
+      exchangeMode = false; $('exchangeBtn').textContent = 'Exchange selected';
+      return;
+    }
+    const lettersToExchange = exchangeSelection.map(i=> myLocalRack[i]);
+    const res = await withRetry((fresh)=>{
+      if(fresh.current !== mySeat) return { error:'Turn already moved on.' };
+      const newPlayers = fresh.players.map(p=>({...p, rack:p.rack.slice()}));
+      const rack = newPlayers[mySeat].rack;
+      lettersToExchange.forEach(l=>{ const idx = rack.indexOf(l); if(idx>-1) rack.splice(idx,1); });
+      const newBag = fresh.bag.slice();
+      lettersToExchange.forEach(l=> newBag.push(l));
+      for(let i=newBag.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [newBag[i],newBag[j]]=[newBag[j],newBag[i]]; }
+      const needed = lettersToExchange.length;
+      for(let i=0;i<needed && newBag.length>0;i++){ rack.push(newBag.pop()); }
+      const newLog = [{ text:`${newPlayers[mySeat].name} exchanged ${needed} tile${needed>1?'s':''}.`, seat:mySeat }, ...fresh.log].slice(0,50);
+      const newState = { ...fresh, players:newPlayers, bag:newBag, passStreak:0, current: nextOccupiedSeat(newPlayers, mySeat), log:newLog };
+      return { newState };
+    });
+    exchangeMode = false; exchangeSelection = [];
+    $('exchangeBtn').textContent = 'Exchange selected';
+    if(!res.ok){ showToast('Could not exchange — please try again.'); render(); return; }
+    render();
+  });
+
+  $('passBtn').addEventListener('click', async ()=>{
+    recallAll();
+    const res = await withRetry((fresh)=>{
+      if(fresh.current !== mySeat) return { error:'Turn already moved on.' };
+      const newLog = [{ text:`${fresh.players[mySeat].name} passed.`, seat:mySeat }, ...fresh.log].slice(0,50);
+      let newState = { ...fresh, passStreak: fresh.passStreak+1, current: nextOccupiedSeat(fresh.players, mySeat), log:newLog };
+      newState = maybeEndGame(newState);
+      return { newState };
+    });
+    if(!res.ok){ showToast('Could not pass — please try again.'); }
+    render();
+  });
+
+  $('resetBtn').addEventListener('click', async ()=>{
+    if(!confirm('Reset this room for everyone? Scores and the board will clear, but everyone keeps their seat.')) return;
+    const res = await withRetry((fresh)=>{
+      const bag = buildFreshBag();
+      const newPlayers = fresh.players.map(p=>{
+        if(!p.name) return { name:null, score:0, rack:[] };
+        const rack = bag.splice(Math.max(0,bag.length-7), 7);
+        return { name:p.name, score:0, rack };
+      });
+      const newState = {
+        players: newPlayers, board: emptyBoard(), bag, current:0, firstMovePlayed:false,
+        passStreak:0, gameOver:false, log:[{ text:'Room was reset for a new game.', seat:null }],
+      };
+      return { newState };
+    });
+    if(!res.ok) showToast('Could not reset — please try again.');
+    render();
+  });
+
+  $('copyLinkBtn').addEventListener('click', ()=>{
+    navigator.clipboard.writeText(window.location.href).then(()=> showToast('Invite link copied!'));
+  });
+
+  $('createBtn').addEventListener('click', createRoom);
+  $('joinBtn').addEventListener('click', ()=> joinRoom($('joinCode').value, $('joinName').value, false));
+  $('joinCode').addEventListener('keydown', e=>{ if(e.key==='Enter') $('joinBtn').click(); });
+  $('joinName').addEventListener('keydown', e=>{ if(e.key==='Enter') $('joinBtn').click(); });
+  $('createName').addEventListener('keydown', e=>{ if(e.key==='Enter') $('createBtn').click(); });
+
+  // ================= BOOT =================
+  buildBoardDOM();
+  (function boot(){
+    const params = new URLSearchParams(window.location.search);
+    const roomFromUrl = params.get('room');
+    if(roomFromUrl){
+      const session = localStorage.getItem('scrabble_session_'+roomFromUrl);
+      if(session){
+        rejoinFromSession(roomFromUrl, JSON.parse(session)).then(ok=>{
+          if(!ok) $('joinCode').value = roomFromUrl;
+        });
+      } else {
+        $('joinCode').value = roomFromUrl;
+      }
+    }
+  })();
+})();
+</script>
+</body>
+</html>
