@@ -280,7 +280,7 @@
 (function(){
   // ================= CONFIG =================
   const SUPABASE_URL = 'https://rrnryszgvctxainqyuyr.supabase.co';
-  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJybnJ5c3pndmN0eGFpbnF5dXlyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4ODg3NTcsImV4cCI6MjA5MDQ2NDc1N30.GkGvfR_ZlGIupbwOOl1BL5gb58M-E2LD5sD7pVl4tso';
+  const SUPABASE_ANON_KEY = 'sb_publishable_GxbDQxSFVdP3GHWP9vqTWA_c7cibAhZ';
   const supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   const SIZE = 15, CENTER = 7;
@@ -352,7 +352,8 @@
   // ================= SUPABASE I/O =================
   async function fetchRoomFresh(code){
     const { data, error } = await supa.from('scrabble_games').select('state,version').eq('room_code', code).maybeSingle();
-    if(error || !data) return null;
+    if(error){ console.error('Supabase fetch error:', error); return null; }
+    if(!data) return null;
     return data;
   }
 
@@ -426,6 +427,13 @@
         roomCode = code; mySeat = 0; myName = name; state = initState; version = 0;
         localStorage.setItem('scrabble_session_'+code, JSON.stringify({ seat:0, name }));
         enterGame();
+        return;
+      }
+      // a duplicate room code (rare) is worth retrying; anything else, surface it and stop
+      if(error.code !== '23505'){
+        console.error('Supabase insert error:', error);
+        $('createBtn').disabled = false; $('createBtn').textContent = 'Create room';
+        showToast('Could not create a room: ' + (error.message || error.code || 'unknown error'));
         return;
       }
     }
