@@ -911,6 +911,10 @@
       if(fresh.current !== mySeat) return { error:'Turn already moved on — try again.' };
       const calc = computeWordsAgainst(fresh.board, fresh.firstMovePlayed, myPending);
       if(!calc.valid) return { error: calc.reason };
+      if(dictionary){
+        const badWords = calc.words.map(w=>w.text.toUpperCase()).filter(w=> !dictionary.has(w));
+        if(badWords.length>0) return { error: `Not in the word list: ${badWords.join(', ')}` };
+      }
       const newBoard = fresh.board.map(row=>row.slice());
       myPending.forEach(p=>{ newBoard[p.r][p.c] = { letter:p.letter, isBlank:p.isBlank }; });
       const newPlayers = fresh.players.map(p=> ({...p, rack:p.rack.slice()}));
